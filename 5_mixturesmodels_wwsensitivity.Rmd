@@ -1,0 +1,818 @@
+---
+title: "Toxic metal mixtures in wells and PTB: metal mixtures models,  well water sensitivity"
+author: "Lauren Eaves"
+date: "04/14/2022"
+output: word_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+sessionInfo()
+rm(list=ls())
+
+#install.packages("yaml")
+#install.packages("rmarkdown")
+#install.packages("broom")
+
+#install.packages("devtools")
+#library(devtools)
+#devtools::install_github("alexpkeil1/qgcompint")
+
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(yaml)
+library(rmarkdown)
+library(broom)
+library(ggpubr)
+library(qgcomp)
+library(qgcompint)
+
+#Create a current date variable to name outputfiles
+cur_date <- str_replace_all(Sys.Date(),"-","")
+
+#Create an output folder 
+Output_Folder <- ("/Users/lauren_eaves/IEHS Dropbox/lauren Eaves/2_Dissertation/2_Analysis/Aim 2/1_analysis/output/wellwater_sens")
+
+#Load cohort data - generated in script: 1_20220131_cohortdataprep
+cohort <- read.csv(file="output/20220405_NCbirths_NAsingletons_GAexclusions_tractlevelmetals_data_withexposurevars.csv")
+colnames(cohort)
+
+#load well water use data 
+wells <- read.csv(file="input/NC_Tracts_2010_Well_Pop_Sum.csv")
+
+
+```
+
+
+#Covariate variables generation
+```{r}
+
+#ensure covariates are in correct variable type form 
+cohort <- cohort %>% 
+  mutate(racegp = as.factor(racegp)) %>% 
+  mutate(mage = as.numeric(mage)) %>% 
+  mutate(mage_sq = as.numeric(mage_sq)) %>% 
+  mutate(smoke = as.numeric(smoke)) %>% 
+  mutate(season_concep = as.factor(season_concep)) %>% 
+  mutate(mothed = as.numeric(mothed)) %>% 
+  mutate(Nitr_perc = as.numeric(Nitr_perc)) %>% 
+  mutate(sex = as.factor(sex))%>% 
+  mutate(pov_perc = as.numeric(pov_perc))
+
+cohort <- cohort %>% 
+  mutate(preterm = as.factor(preterm)) %>% 
+  mutate(verypreterm = as.factor(verypreterm)) %>% 
+  mutate(extremepreterm = as.factor(extremepreterm))
+cohort$preterm <- relevel(cohort$preterm, ref = "0")
+cohort$verypreterm <- relevel(cohort$verypreterm, ref = "0")
+cohort$extremepreterm <- relevel(cohort$extremepreterm, ref = "0")
+
+```
+
+
+#Data prep: filter to tracts with >50% & 25% on well water 
+```{r}
+wells <- wells %>% 
+  mutate(percent_ww = (sum/POP2010)*100) %>% 
+  dplyr::rename(census_tract=FIPS)
+
+cohort <- left_join(cohort, wells, by="census_tract")
+#n=1,493,195
+
+cohort_50 <- cohort %>% 
+  filter(percent_ww >= 50)
+#n=202,897
+
+cohort_25 <- cohort %>% 
+  filter(percent_ww >= 25)
+#n=445,002
+
+```
+
+
+#With dataset of tracts with >50% on well water 
+# PTB mixture models
+```{r}
+colnames(cohort)
+
+Xnm <- c('Arsenic.Mean_avg', 'Cadmium.Mean_avg', 'Lead.Mean_avg', 'Manganese.Mean_avg', 'Chromium.Mean_avg', 'Copper.Mean_avg', 'Zinc.Mean_avg')
+covars = c('mage','mage_sq','racegp','smoke','season_concep','mothed','Nitr_perc','pov_perc')
+
+
+PTB_adj_ppb <- qgcomp.noboot(preterm~.,
+                          expnms=Xnm, dat=cohort_50[,c(Xnm,covars,'preterm')], family=binomial(), q=4)
+PTB_adj_ppb
+plot(PTB_adj_ppb)
+
+
+PTB_unadj_ppb <- qgcomp.noboot(preterm~.,
+                          expnms=Xnm, dat=cohort_50[,c(Xnm,'preterm')], family=binomial(), q=4)
+PTB_unadj_ppb
+plot(PTB_unadj_ppb)
+
+
+
+```
+# PTB mixture models: partial effects 
+```{r}
+# training/validation split
+set.seed(432789)
+trainidx <- sample(1:nrow(cohort_50), round(nrow(cohort_50)*0.3))
+valididx <- setdiff(1:nrow(cohort_50),trainidx)
+traindata <- cohort_50[trainidx,]
+validdata <- cohort_50[valididx,]
+dim(traindata) 
+dim(validdata)  
+
+PTB_splitres <- qgcomp.partials(fun="qgcomp.noboot", 
+                                f=preterm~., 
+                                q=4, 
+                                traindata=traindata[,c(Xnm,covars,'preterm')],
+                                validdata=validdata[,c(Xnm,covars,'preterm')], 
+                                expnms=Xnm,
+                                family=binomial())
+PTB_splitres
+plot(PTB_splitres$pos.fit)
+plot(PTB_splitres$neg.fit)
+
+PTB_splitres$posmix
+PTB_splitres$pos.fit$pos.weights
+PTB_splitres$pos.fit$neg.weights
+PTB_splitres$negmix
+PTB_splitres$neg.fit$pos.weights
+PTB_splitres$neg.fit$neg.weights
+
+```
+
+
+
+# very PTB mixture models
+```{r}
+
+vPTB_adj_ppb <- qgcomp.noboot(verypreterm~.,
+                          expnms=Xnm, dat=cohort_50[,c(Xnm,covars,'verypreterm')], family=binomial(), q=4)
+vPTB_adj_ppb
+plot(vPTB_adj_ppb)
+
+vPTB_unadj_ppb <- qgcomp.noboot(verypreterm~.,
+                          expnms=Xnm, dat=cohort_50[,c(Xnm,'verypreterm')], family=binomial(), q=4)
+vPTB_unadj_ppb
+plot(vPTB_unadj_ppb)
+
+
+```
+
+# very PTB mixture models: partial effects 
+```{r}
+
+vPTB_splitres <- qgcomp.partials(fun="qgcomp.noboot", 
+                                f=verypreterm~., 
+                                q=4, 
+                                traindata=traindata[,c(Xnm,covars,'verypreterm')],
+                                validdata=validdata[,c(Xnm,covars,'verypreterm')], 
+                                expnms=Xnm,
+                                family=binomial())
+vPTB_splitres
+plot(vPTB_splitres$pos.fit)
+plot(vPTB_splitres$neg.fit)
+
+
+vPTB_splitres$posmix
+vPTB_splitres$pos.fit$pos.weights
+vPTB_splitres$pos.fit$neg.weights
+vPTB_splitres$negmix
+vPTB_splitres$neg.fit$pos.weights
+vPTB_splitres$neg.fit$neg.weights
+
+```
+
+# extreme PTB mixture models
+```{r}
+
+ePTB_adj_ppb <- qgcomp.noboot(extremepreterm~.,
+                          expnms=Xnm, dat=cohort_50[,c(Xnm,covars,'extremepreterm')], family=binomial(), q=4)
+ePTB_adj_ppb
+plot(ePTB_adj_ppb)
+
+ePTB_unadj_ppb <- qgcomp.noboot(extremepreterm~.,
+                          expnms=Xnm, dat=cohort_50[,c(Xnm,'extremepreterm')], family=binomial(), q=4)
+ePTB_unadj_ppb
+plot(ePTB_unadj_ppb)
+
+```
+
+# extremely PTB mixture models: partial effects 
+```{r}
+
+ePTB_splitres <- qgcomp.partials(fun="qgcomp.noboot", 
+                                f=extremepreterm~., 
+                                q=4, 
+                                traindata=traindata[,c(Xnm,covars,'extremepreterm')],
+                                validdata=validdata[,c(Xnm,covars,'extremepreterm')], 
+                                expnms=Xnm,
+                                family=binomial())
+ePTB_splitres
+plot(ePTB_splitres$pos.fit)
+plot(ePTB_splitres$neg.fit)
+
+ePTB_splitres$posmix
+ePTB_splitres$pos.fit$pos.weights
+ePTB_splitres$pos.fit$neg.weights
+ePTB_splitres$negmix
+ePTB_splitres$neg.fit$pos.weights
+ePTB_splitres$neg.fit$neg.weights
+
+```
+
+
+# Export results 
+```{r}
+allmodels <- c("PTB_unadj_ppb", "PTB_adj_ppb", 
+               "vPTB_unadj_ppb", "vPTB_adj_ppb", 
+               "ePTB_unadj_ppb", "ePTB_adj_ppb", 
+               "PTB_splitres$pos.fit","vPTB_splitres$pos.fit","ePTB_splitres$pos.fit",
+               "PTB_splitres$neg.fit","vPTB_splitres$neg.fit","ePTB_splitres$neg.fit")
+
+
+# SLOPE PARAMETERS
+clean_print <- function(x){
+  output  = data.frame(
+    x$coef,
+    sqrt(x$var.coef),
+    x$ci.coef,
+    x$pval
+  )
+  names(output) = c("Estimate", "Std. Error", "Lower CI", "Upper CI", "p value")
+  return(output)
+}
+
+Results_SlopeParams <- data.frame() #empty vector to append dfs to
+for (i in allmodels){
+  print(i)
+  df <- eval(parse(text = paste0("clean_print(",i,")"))) %>%
+    rownames_to_column("Parameter") %>%
+    mutate("Model" = i) 
+  Results_SlopeParams <- rbind(Results_SlopeParams,df)
+}
+Results_SlopeParams <- Results_SlopeParams %>% 
+  mutate(OR=exp(Estimate)) %>% 
+  mutate(UpperCI_OR=exp(`Upper CI`)) %>% 
+  mutate(LowerCI_OR=exp(`Lower CI`))
+
+# METAL COEFFICIENTS
+Results_MetalCoeffs <- data.frame()
+for (i in allmodels){
+  print(i)
+  df <- eval(parse(text = paste0("as.data.frame(summary(",i,"$fit)$coefficients[,])"))) %>% 
+    mutate("Model" = i)
+  df <- df %>% rownames_to_column(var="variable")  
+  Results_MetalCoeffs<- rbind(Results_MetalCoeffs,df)
+}
+
+
+# WEIGHTS
+# Organizing the weights into one dataframe:
+Results_MetalWeights <- data.frame()
+for (i in allmodels){
+  Results_PWeights <- eval(parse(text = paste0("as.data.frame(",i,"$pos.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Positive")
+  Results_NWeights <- eval(parse(text = paste0("as.data.frame(",i,"$neg.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Negative")
+  Results_Weights <- rbind(Results_PWeights, Results_NWeights) %>%
+    mutate("Model" = i) %>% as.data.frame()
+  #Merge
+  Results_MetalWeights <- rbind(Results_MetalWeights, Results_Weights)
+}
+
+write.csv(Results_SlopeParams, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_SlopeParams_50wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalCoeffs, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalCoeffs_50wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalWeights, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalWeights_50wellwater.csv"), row.names=TRUE)
+
+rm(list=c(allmodels))
+
+```
+
+#Race effect measure modification
+
+## Preterm birth 
+```{r}
+
+covars = c('mage','mage_sq','smoke','mothed','Nitr_perc','pov_perc')
+cohort$racegp <- relevel(cohort$racegp, ref = "1")
+
+PTB_emm <- qgcomp.emm.noboot(preterm~ Arsenic.Mean_avg + Cadmium.Mean_avg + Lead.Mean_avg + Manganese.Mean_avg + Chromium.Mean_avg + Copper.Mean_avg +Zinc.Mean_avg + mage+ mage_sq + smoke + mothed + Nitr_perc,
+           emmvar="racegp", 
+           expnms = Xnm, 
+           dat=cohort_50[,c(Xnm,covars,'racegp','preterm')], q=4, 
+           family=binomial())
+
+PTB_emm
+
+# stratum specific mixture log-odds ratios
+getstrateffects(PTB_emm, emmval = "1") #white nonH
+getstrateffects(PTB_emm, emmval = "2") #black nonH
+getstrateffects(PTB_emm, emmval = "3") #hisp
+getstrateffects(PTB_emm, emmval = "4") #asian/PI
+getstrateffects(PTB_emm, emmval = "5") #American Ind
+getstrateffects(PTB_emm, emmval = "6") #other 
+
+# jointly exposed mixture log-odds ratios
+getjointeffects(PTB_emm, emmval = "1") #white nonH
+getjointeffects(PTB_emm, emmval = "2") #black nonH
+getjointeffects(PTB_emm, emmval = "3") #hisp
+getjointeffects(PTB_emm, emmval = "4") #asian/PI
+getjointeffects(PTB_emm, emmval = "5") #American Ind
+getjointeffects(PTB_emm, emmval = "6") #other 
+
+
+```
+
+
+## Very Preterm birth 
+```{r}
+
+vPTB_emm <- qgcomp.emm.noboot(verypreterm~ Arsenic.Mean_avg + Cadmium.Mean_avg + Lead.Mean_avg + Manganese.Mean_avg + Chromium.Mean_avg + Copper.Mean_avg +Zinc.Mean_avg + mage+ mage_sq + smoke + mothed + Nitr_perc,
+           emmvar="racegp", 
+           expnms = Xnm, 
+           dat=cohort_50[,c(Xnm,covars,'racegp','verypreterm')], q=4, 
+           family=binomial())
+
+vPTB_emm
+
+# stratum specific mixture log-odds ratios
+getstrateffects(vPTB_emm, emmval = "1") #white nonH
+getstrateffects(vPTB_emm, emmval = "2") #black nonH
+getstrateffects(vPTB_emm, emmval = "3") #hisp
+getstrateffects(vPTB_emm, emmval = "4") #asian/PI
+getstrateffects(vPTB_emm, emmval = "5") #American Ind
+getstrateffects(vPTB_emm, emmval = "6") #other 
+
+# jointly exposed mixture log-odds ratios
+getjointeffects(vPTB_emm, emmval = "1") #white nonH
+getjointeffects(vPTB_emm, emmval = "2") #black nonH
+getjointeffects(vPTB_emm, emmval = "3") #hisp
+getjointeffects(vPTB_emm, emmval = "4") #asian/PI
+getjointeffects(vPTB_emm, emmval = "5") #American Ind
+getjointeffects(vPTB_emm, emmval = "6") #other 
+
+
+```
+
+## Extremely Preterm birth 
+```{r}
+
+
+ePTB_emm <- qgcomp.emm.noboot(extremepreterm~ Arsenic.Mean_avg + Cadmium.Mean_avg + Lead.Mean_avg + Manganese.Mean_avg + Chromium.Mean_avg + Copper.Mean_avg +Zinc.Mean_avg + mage+ mage_sq + smoke + mothed + Nitr_perc,
+           emmvar="racegp", 
+           expnms = Xnm, 
+           dat=cohort_50[,c(Xnm,covars,'racegp','extremepreterm')], q=4, 
+           family=binomial())
+
+ePTB_emm
+
+# stratum specific mixture log-odds ratios
+getstrateffects(ePTB_emm, emmval = "1") #white nonH
+getstrateffects(ePTB_emm, emmval = "2") #black nonH
+getstrateffects(ePTB_emm, emmval = "3") #hisp
+getstrateffects(ePTB_emm, emmval = "4") #asian/PI
+getstrateffects(ePTB_emm, emmval = "5") #American Ind
+getstrateffects(ePTB_emm, emmval = "6") #other 
+
+# jointly exposed mixture log-odds ratios
+getjointeffects(ePTB_emm, emmval = "1") #white nonH
+getjointeffects(ePTB_emm, emmval = "2") #black nonH
+getjointeffects(ePTB_emm, emmval = "3") #hisp
+getjointeffects(ePTB_emm, emmval = "4") #asian/PI
+getjointeffects(ePTB_emm, emmval = "5") #American Ind
+getjointeffects(ePTB_emm, emmval = "6") #other 
+
+
+```
+
+
+# Export race stratification results 
+```{r}
+
+all <- mget(ls(pattern="emm"))
+allnames <-names(all)
+print(allnames)
+
+# SLOPE PARAMETERS
+Results_SlopeParams <- data.frame() #empty vector to append dfs to
+for (i in allnames){
+  print(i)
+  df <- eval(parse(text = paste0("clean_print(",i,")"))) %>%
+    rownames_to_column("Parameter") %>%
+    mutate("Model" = i) 
+  Results_SlopeParams <- rbind(Results_SlopeParams,df)
+}
+Results_SlopeParams <- Results_SlopeParams %>% 
+  mutate(OR=exp(Estimate)) %>% 
+  mutate(UpperCI_OR=exp(`Upper CI`)) %>% 
+  mutate(LowerCI_OR=exp(`Lower CI`))
+
+# METAL COEFFICIENTS
+Results_MetalCoeffs <- data.frame()
+for (i in allnames){
+  print(i)
+  df <- eval(parse(text = paste0("as.data.frame(summary(",i,"$fit)$coefficients[,])"))) %>% 
+    mutate("Model" = i)
+  df <- df %>% rownames_to_column(var="variable")  
+  Results_MetalCoeffs<- rbind(Results_MetalCoeffs,df)
+}
+
+
+# WEIGHTS
+# Organizing the weights into one dataframe:
+Results_MetalWeights <- data.frame()
+for (i in allnames){
+  Results_PWeights <- eval(parse(text = paste0("as.data.frame(",i,"$pos.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Positive")
+  Results_NWeights <- eval(parse(text = paste0("as.data.frame(",i,"$neg.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Negative")
+  Results_Weights <- rbind(Results_PWeights, Results_NWeights) %>%
+    mutate("Model" = i) %>% as.data.frame()
+  #Merge
+  Results_MetalWeights <- rbind(Results_MetalWeights, Results_Weights)
+}
+
+write.csv(Results_SlopeParams, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_SlopeParams_Racemodification_50wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalCoeffs, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalCoeffs_Racemodification_50wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalWeights, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalWeights_Racemodification_50wellwater.csv"), row.names=TRUE)
+
+rm(list=allnames)
+
+```
+
+#With dataset of tracts with >25% on well water 
+# PTB mixture models
+```{r}
+
+PTB_adj_ppb <- qgcomp.noboot(preterm~.,
+                          expnms=Xnm, dat=cohort_25[,c(Xnm,covars,'preterm')], family=binomial(), q=4)
+PTB_adj_ppb
+plot(PTB_adj_ppb)
+
+
+PTB_unadj_ppb <- qgcomp.noboot(preterm~.,
+                          expnms=Xnm, dat=cohort_25[,c(Xnm,'preterm')], family=binomial(), q=4)
+PTB_unadj_ppb
+plot(PTB_unadj_ppb)
+
+
+
+```
+# PTB mixture models: partial effects 
+```{r}
+# training/validation split
+set.seed(432789)
+trainidx <- sample(1:nrow(cohort_25), round(nrow(cohort_25)*0.3))
+valididx <- setdiff(1:nrow(cohort_25),trainidx)
+traindata <- cohort_25[trainidx,]
+validdata <- cohort_25[valididx,]
+dim(traindata) 
+dim(validdata)  
+
+PTB_splitres <- qgcomp.partials(fun="qgcomp.noboot", 
+                                f=preterm~., 
+                                q=4, 
+                                traindata=traindata[,c(Xnm,covars,'preterm')],
+                                validdata=validdata[,c(Xnm,covars,'preterm')], 
+                                expnms=Xnm,
+                                family=binomial())
+PTB_splitres
+plot(PTB_splitres$pos.fit)
+plot(PTB_splitres$neg.fit)
+
+PTB_splitres$posmix
+PTB_splitres$pos.fit$pos.weights
+PTB_splitres$pos.fit$neg.weights
+PTB_splitres$negmix
+PTB_splitres$neg.fit$pos.weights
+PTB_splitres$neg.fit$neg.weights
+
+```
+
+
+
+# very PTB mixture models
+```{r}
+
+vPTB_adj_ppb <- qgcomp.noboot(verypreterm~.,
+                          expnms=Xnm, dat=cohort_25[,c(Xnm,covars,'verypreterm')], family=binomial(), q=4)
+vPTB_adj_ppb
+plot(vPTB_adj_ppb)
+
+vPTB_unadj_ppb <- qgcomp.noboot(verypreterm~.,
+                          expnms=Xnm, dat=cohort_25[,c(Xnm,'verypreterm')], family=binomial(), q=4)
+vPTB_unadj_ppb
+plot(vPTB_unadj_ppb)
+
+
+```
+
+# very PTB mixture models: partial effects 
+```{r}
+
+vPTB_splitres <- qgcomp.partials(fun="qgcomp.noboot", 
+                                f=verypreterm~., 
+                                q=4, 
+                                traindata=traindata[,c(Xnm,covars,'verypreterm')],
+                                validdata=validdata[,c(Xnm,covars,'verypreterm')], 
+                                expnms=Xnm,
+                                family=binomial())
+vPTB_splitres
+plot(vPTB_splitres$pos.fit)
+plot(vPTB_splitres$neg.fit)
+
+
+vPTB_splitres$posmix
+vPTB_splitres$pos.fit$pos.weights
+vPTB_splitres$pos.fit$neg.weights
+vPTB_splitres$negmix
+vPTB_splitres$neg.fit$pos.weights
+vPTB_splitres$neg.fit$neg.weights
+
+```
+
+# extreme PTB mixture models
+```{r}
+
+ePTB_adj_ppb <- qgcomp.noboot(extremepreterm~.,
+                          expnms=Xnm, dat=cohort_25[,c(Xnm,covars,'extremepreterm')], family=binomial(), q=4)
+ePTB_adj_ppb
+plot(ePTB_adj_ppb)
+
+ePTB_unadj_ppb <- qgcomp.noboot(extremepreterm~.,
+                          expnms=Xnm, dat=cohort_25[,c(Xnm,'extremepreterm')], family=binomial(), q=4)
+ePTB_unadj_ppb
+plot(ePTB_unadj_ppb)
+
+```
+
+# extremely PTB mixture models: partial effects 
+```{r}
+
+ePTB_splitres <- qgcomp.partials(fun="qgcomp.noboot", 
+                                f=extremepreterm~., 
+                                q=4, 
+                                traindata=traindata[,c(Xnm,covars,'extremepreterm')],
+                                validdata=validdata[,c(Xnm,covars,'extremepreterm')], 
+                                expnms=Xnm,
+                                family=binomial())
+ePTB_splitres
+plot(ePTB_splitres$pos.fit)
+plot(ePTB_splitres$neg.fit)
+
+ePTB_splitres$posmix
+ePTB_splitres$pos.fit$pos.weights
+ePTB_splitres$pos.fit$neg.weights
+ePTB_splitres$negmix
+ePTB_splitres$neg.fit$pos.weights
+ePTB_splitres$neg.fit$neg.weights
+
+```
+
+
+# Export results 
+```{r}
+allmodels <- c("PTB_unadj_ppb", "PTB_adj_ppb", 
+               "vPTB_unadj_ppb", "vPTB_adj_ppb", 
+               "ePTB_unadj_ppb", "ePTB_adj_ppb", 
+               "PTB_splitres$pos.fit","vPTB_splitres$pos.fit","ePTB_splitres$pos.fit",
+               "PTB_splitres$neg.fit","vPTB_splitres$neg.fit","ePTB_splitres$neg.fit")
+
+
+# SLOPE PARAMETERS
+clean_print <- function(x){
+  output  = data.frame(
+    x$coef,
+    sqrt(x$var.coef),
+    x$ci.coef,
+    x$pval
+  )
+  names(output) = c("Estimate", "Std. Error", "Lower CI", "Upper CI", "p value")
+  return(output)
+}
+
+Results_SlopeParams <- data.frame() #empty vector to append dfs to
+for (i in allmodels){
+  print(i)
+  df <- eval(parse(text = paste0("clean_print(",i,")"))) %>%
+    rownames_to_column("Parameter") %>%
+    mutate("Model" = i) 
+  Results_SlopeParams <- rbind(Results_SlopeParams,df)
+}
+Results_SlopeParams <- Results_SlopeParams %>% 
+  mutate(OR=exp(Estimate)) %>% 
+  mutate(UpperCI_OR=exp(`Upper CI`)) %>% 
+  mutate(LowerCI_OR=exp(`Lower CI`))
+
+# METAL COEFFICIENTS
+Results_MetalCoeffs <- data.frame()
+for (i in allmodels){
+  print(i)
+  df <- eval(parse(text = paste0("as.data.frame(summary(",i,"$fit)$coefficients[,])"))) %>% 
+    mutate("Model" = i)
+  df <- df %>% rownames_to_column(var="variable")  
+  Results_MetalCoeffs<- rbind(Results_MetalCoeffs,df)
+}
+
+
+# WEIGHTS
+# Organizing the weights into one dataframe:
+Results_MetalWeights <- data.frame()
+for (i in allmodels){
+  Results_PWeights <- eval(parse(text = paste0("as.data.frame(",i,"$pos.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Positive")
+  Results_NWeights <- eval(parse(text = paste0("as.data.frame(",i,"$neg.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Negative")
+  Results_Weights <- rbind(Results_PWeights, Results_NWeights) %>%
+    mutate("Model" = i) %>% as.data.frame()
+  #Merge
+  Results_MetalWeights <- rbind(Results_MetalWeights, Results_Weights)
+}
+
+write.csv(Results_SlopeParams, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_SlopeParams_25wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalCoeffs, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalCoeffs_25wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalWeights, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalWeights_25wellwater.csv"), row.names=TRUE)
+
+rm(list=c(allmodels))
+
+```
+
+#Race effect measure modification
+
+## Preterm birth 
+```{r}
+
+covars = c('mage','mage_sq','smoke','mothed','Nitr_perc','pov_perc')
+cohort$racegp <- relevel(cohort$racegp, ref = "1")
+
+PTB_emm <- qgcomp.emm.noboot(preterm~ Arsenic.Mean_avg + Cadmium.Mean_avg + Lead.Mean_avg + Manganese.Mean_avg + Chromium.Mean_avg + Copper.Mean_avg +Zinc.Mean_avg + mage+ mage_sq + smoke + mothed + Nitr_perc,
+           emmvar="racegp", 
+           expnms = Xnm, 
+           dat=cohort_25[,c(Xnm,covars,'racegp','preterm')], q=4, 
+           family=binomial())
+
+PTB_emm
+
+# stratum specific mixture log-odds ratios
+getstrateffects(PTB_emm, emmval = "1") #white nonH
+getstrateffects(PTB_emm, emmval = "2") #black nonH
+getstrateffects(PTB_emm, emmval = "3") #hisp
+getstrateffects(PTB_emm, emmval = "4") #asian/PI
+getstrateffects(PTB_emm, emmval = "5") #American Ind
+getstrateffects(PTB_emm, emmval = "6") #other 
+
+# jointly exposed mixture log-odds ratios
+getjointeffects(PTB_emm, emmval = "1") #white nonH
+getjointeffects(PTB_emm, emmval = "2") #black nonH
+getjointeffects(PTB_emm, emmval = "3") #hisp
+getjointeffects(PTB_emm, emmval = "4") #asian/PI
+getjointeffects(PTB_emm, emmval = "5") #American Ind
+getjointeffects(PTB_emm, emmval = "6") #other 
+
+
+```
+
+
+## Very Preterm birth 
+```{r}
+
+vPTB_emm <- qgcomp.emm.noboot(verypreterm~ Arsenic.Mean_avg + Cadmium.Mean_avg + Lead.Mean_avg + Manganese.Mean_avg + Chromium.Mean_avg + Copper.Mean_avg +Zinc.Mean_avg + mage+ mage_sq + smoke + mothed + Nitr_perc,
+           emmvar="racegp", 
+           expnms = Xnm, 
+           dat=cohort_25[,c(Xnm,covars,'racegp','verypreterm')], q=4, 
+           family=binomial())
+
+vPTB_emm
+
+# stratum specific mixture log-odds ratios
+getstrateffects(vPTB_emm, emmval = "1") #white nonH
+getstrateffects(vPTB_emm, emmval = "2") #black nonH
+getstrateffects(vPTB_emm, emmval = "3") #hisp
+getstrateffects(vPTB_emm, emmval = "4") #asian/PI
+getstrateffects(vPTB_emm, emmval = "5") #American Ind
+getstrateffects(vPTB_emm, emmval = "6") #other 
+
+# jointly exposed mixture log-odds ratios
+getjointeffects(vPTB_emm, emmval = "1") #white nonH
+getjointeffects(vPTB_emm, emmval = "2") #black nonH
+getjointeffects(vPTB_emm, emmval = "3") #hisp
+getjointeffects(vPTB_emm, emmval = "4") #asian/PI
+getjointeffects(vPTB_emm, emmval = "5") #American Ind
+getjointeffects(vPTB_emm, emmval = "6") #other 
+
+
+```
+
+## Extremely Preterm birth 
+```{r}
+
+
+ePTB_emm <- qgcomp.emm.noboot(extremepreterm~ Arsenic.Mean_avg + Cadmium.Mean_avg + Lead.Mean_avg + Manganese.Mean_avg + Chromium.Mean_avg + Copper.Mean_avg +Zinc.Mean_avg + mage+ mage_sq + smoke + mothed + Nitr_perc,
+           emmvar="racegp", 
+           expnms = Xnm, 
+           dat=cohort_25[,c(Xnm,covars,'racegp','extremepreterm')], q=4, 
+           family=binomial())
+
+ePTB_emm
+
+# stratum specific mixture log-odds ratios
+getstrateffects(ePTB_emm, emmval = "1") #white nonH
+getstrateffects(ePTB_emm, emmval = "2") #black nonH
+getstrateffects(ePTB_emm, emmval = "3") #hisp
+getstrateffects(ePTB_emm, emmval = "4") #asian/PI
+getstrateffects(ePTB_emm, emmval = "5") #American Ind
+getstrateffects(ePTB_emm, emmval = "6") #other 
+
+# jointly exposed mixture log-odds ratios
+getjointeffects(ePTB_emm, emmval = "1") #white nonH
+getjointeffects(ePTB_emm, emmval = "2") #black nonH
+getjointeffects(ePTB_emm, emmval = "3") #hisp
+getjointeffects(ePTB_emm, emmval = "4") #asian/PI
+getjointeffects(ePTB_emm, emmval = "5") #American Ind
+getjointeffects(ePTB_emm, emmval = "6") #other 
+
+
+```
+
+
+# Export race stratification results 
+```{r}
+
+all <- mget(ls(pattern="emm"))
+allnames <-names(all)
+print(allnames)
+
+# SLOPE PARAMETERS
+Results_SlopeParams <- data.frame() #empty vector to append dfs to
+for (i in allnames){
+  print(i)
+  df <- eval(parse(text = paste0("clean_print(",i,")"))) %>%
+    rownames_to_column("Parameter") %>%
+    mutate("Model" = i) 
+  Results_SlopeParams <- rbind(Results_SlopeParams,df)
+}
+Results_SlopeParams <- Results_SlopeParams %>% 
+  mutate(OR=exp(Estimate)) %>% 
+  mutate(UpperCI_OR=exp(`Upper CI`)) %>% 
+  mutate(LowerCI_OR=exp(`Lower CI`))
+
+# METAL COEFFICIENTS
+Results_MetalCoeffs <- data.frame()
+for (i in allnames){
+  print(i)
+  df <- eval(parse(text = paste0("as.data.frame(summary(",i,"$fit)$coefficients[,])"))) %>% 
+    mutate("Model" = i)
+  df <- df %>% rownames_to_column(var="variable")  
+  Results_MetalCoeffs<- rbind(Results_MetalCoeffs,df)
+}
+
+
+# WEIGHTS
+# Organizing the weights into one dataframe:
+Results_MetalWeights <- data.frame()
+for (i in allnames){
+  Results_PWeights <- eval(parse(text = paste0("as.data.frame(",i,"$pos.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Positive")
+  Results_NWeights <- eval(parse(text = paste0("as.data.frame(",i,"$neg.weights)"))) %>%
+    rownames_to_column("Metal") %>%
+    dplyr::rename("Weight" = 2) %>%
+    mutate("Weight Direction" = "Negative")
+  Results_Weights <- rbind(Results_PWeights, Results_NWeights) %>%
+    mutate("Model" = i) %>% as.data.frame()
+  #Merge
+  Results_MetalWeights <- rbind(Results_MetalWeights, Results_Weights)
+}
+
+write.csv(Results_SlopeParams, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_SlopeParams_Racemodification_25wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalCoeffs, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalCoeffs_Racemodification_25wellwater.csv"), row.names=TRUE)
+write.csv(Results_MetalWeights, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_MetalWeights_Racemodification_25wellwater.csv"), row.names=TRUE)
+
+rm(list=allnames)
+
+```
+
+
+
+
+

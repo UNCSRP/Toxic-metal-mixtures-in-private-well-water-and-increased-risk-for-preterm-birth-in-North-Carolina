@@ -1,0 +1,17 @@
+﻿Variable Name,Variable Description,Type,Units,Comments
+FIPS,11 digit federal information processing system (FIPS) code used by US census bureau.,Numerical,n/a,
+[METAL].Number_abovelimit_EPA,Number of tests that had [METAL] value at or above the EPA standard,Numerical,n/a,"NA if no standard exists. For Mn, the standard used here is 300 ppb (the Health Advisory Limit). The EPA MCL for Mn of 50 ppb is the same as the NCGW standard therefore is captured in that variable. "
+[METAL].Number_abovelimit_NCGW,Number of tests that had [METAL] value at or above the NC groundwater standard,Numerical,n/a,NA if no standard exists.  
+[METAL].Number_at_or_below_LOR,Number of tests that had [METAL] value at or below the limit of reporting,Numerical,n/a, 
+[METAL].Mean_avg,Mean value of [METAL] ,Numerical,ppb,NA if 0 tests
+[METAL].Med,Median value of [METAL] ,Numerical,ppb,NA if 0 tests
+[METAL].Minimum,Minimum value of [METAL] ,Numerical,ppb,NA if 0 tests
+[METAL].Maximum,Maximum value of [METAL] ,Numerical,ppb,NA if 0 tests
+[METAL].Std,Standard deviation of [METAL] ,Numerical,n/a,NA if 0 tests
+[METAL].IQRange,Interquartile range of [METAL] ,Numerical,n/a,NA if 0 tests
+[METAL].Number_non_missing,Number of tests of [METAL] ,Numerical,n/a,
+[METAL].Number_above_LOR,Number of tests that had [METAL] value above the limit of reporting,Numerical,n/a, 
+[METAL].%_above_LOR,Percentage of tests that had [METAL] value above the limit of reporting,Numerical,n/a,"""-99"" if no demoninator, ie. Number_non_missing=0)"
+[METAL].%_abovelimit_EPA,Percentage of tests that had [METAL] value at or above the EPA standard,Numerical,n/a,"NA if no standard exists, ""-99"" if no demoninator, ie. Number_non_missing=0).  For Mn, the standard used here is 300 ppb (the Health Advisory Limit). The EPA MCL for Mn of 50 ppb is the same as the NCGW standard therefore is captured in that variable. "
+[METAL].%_abovelimit_NCGW,Percentage of tests that had [METAL] value at or above the NC groundwater standard,Numerical,n/a,"NA if no standard exists, ""-99"" if no demoninator, ie. Number_non_missing=0)"
+,,,, 

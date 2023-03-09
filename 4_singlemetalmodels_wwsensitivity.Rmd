@@ -1,0 +1,932 @@
+---
+title: 'Toxic metal mixtures in wells and PTB: single metal models, well water sensitivity'
+author: "Lauren Eaves"
+date: "04/05/2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+sessionInfo()
+rm(list=ls())
+
+#install.packages("yaml")
+#install.packages("rmarkdown")
+#install.packages("broom")
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(yaml)
+library(rmarkdown)
+library(broom)
+library(ggpubr)
+
+#Create a current date variable to name outputfiles
+cur_date <- str_replace_all(Sys.Date(),"-","")
+
+#Create an output folder 
+Output_Folder <- ("/Users/lauren_eaves/IEHS Dropbox/lauren Eaves/2_Dissertation/2_Analysis/Aim 2/1_analysis/output/wellwater_sens")
+
+#Load cohort data - generated in script: 20220131_cohortdataprep.Rmd
+cohort <- read.csv(file="output/20220405_NCbirths_NAsingletons_GAexclusions_tractlevelmetals_data_withexposurevars.csv")
+colnames(cohort)
+#created in functional form script 
+
+#Load tracts distributions data 
+tracts <- read.csv(file="input/20220209_NCwellwise_tractlevel_ALLTRACTS_distributions.csv")
+
+#load well water use data 
+wells <- read.csv(file="input/NC_Tracts_2010_Well_Pop_Sum.csv")
+
+```
+
+
+#Data prep: variables 
+```{r}
+
+#convert outcome variables to factors and ensure correct reference level 
+cohort <- cohort %>% 
+  mutate(preterm = as.factor(preterm)) %>% 
+  mutate(verypreterm = as.factor(verypreterm)) %>% 
+  mutate(extremepreterm = as.factor(extremepreterm))
+cohort$preterm <- relevel(cohort$preterm, ref = "0")
+cohort$verypreterm <- relevel(cohort$verypreterm, ref = "0")
+cohort$extremepreterm <- relevel(cohort$extremepreterm, ref = "0")
+
+metals <- c("Arsenic","Cadmium","Chromium", "Copper","Lead","Manganese","Zinc")
+
+cohort <- cohort %>% 
+  mutate(Arsenic_perc=as.factor(Arsenic_perc)) %>% 
+  mutate(Cadmium_perc=as.factor(Cadmium_perc)) %>% 
+  mutate(Chromium_perc=as.factor(Chromium_perc)) %>% 
+  mutate(Copper_perc=as.factor(Copper_perc)) %>% 
+  mutate(Lead_perc=as.factor(Lead_perc)) %>% 
+  mutate(Manganese_perc=as.factor(Manganese_perc)) %>% 
+  mutate(Zinc_perc=as.factor(Zinc_perc)) %>% 
+  mutate(Arsenic_limit=as.factor(Arsenic_limit)) %>% 
+  mutate(Cadmium_limit=as.factor(Cadmium_limit)) %>% 
+  mutate(Chromium_limit=as.factor(Chromium_limit)) %>% 
+  mutate(Copper_limit=as.factor(Copper_limit)) %>% 
+  mutate(Lead_limit=as.factor(Lead_limit)) %>% 
+  mutate(Manganese_limit=as.factor(Manganese_limit)) %>% 
+  mutate(Zinc_limit=as.factor(Zinc_limit)) 
+
+```
+
+
+#Data prep: filter to tracts with >50% & 25% on well water 
+```{r}
+wells <- wells %>% 
+  mutate(percent_ww = (sum/POP2010)*100) %>% 
+  dplyr::rename(census_tract=FIPS)
+
+cohort <- left_join(cohort, wells, by="census_tract")
+#n=1,493,195
+
+cohort_50 <- cohort %>% 
+  filter(percent_ww >= 50)
+#n=202,897
+
+cohort_25 <- cohort %>% 
+  filter(percent_ww >= 25)
+#n=445,002
+
+```
+
+#With dataset of tracts with >50% on well water 
+#Fit unadjusted models: for preterm birth 
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_50$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(preterm ~ eval(parse(text = paste0(metal,"_perc"))), family=binomial, data=cohort_50)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_unadj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_unadj_perc"),mod_tid) 
+  assign(paste0(metal,"_unadj_perc_plot"),plot) 
+  
+}
+
+```
+
+
+
+## Merge results 
+```{r}
+#merge all single metal, unadjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_unadj_perc, 
+                    Cadmium_unadj_perc, 
+                    Chromium_unadj_perc, 
+                    Copper_unadj_perc, 
+                    Lead_unadj_perc, 
+                    Manganese_unadj_perc, 
+                    Zinc_unadj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_unadjusted_models_50wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_unadj_perc_plot,
+                        Cadmium_unadj_perc_plot,
+                        Chromium_unadj_perc_plot,
+                        Copper_unadj_perc_plot,
+                        Lead_unadj_perc_plot,
+                        Manganese_unadj_perc_plot,
+                        Zinc_unadj_perc_plot)
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_unadjusted_models_percplots_50wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+
+```
+
+
+#Fit unadjusted models: for very preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_50$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(verypreterm ~ eval(parse(text = paste0(metal,"_perc"))), family=binomial, data=cohort_50)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_unadj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_unadj_perc"),mod_tid) 
+  assign(paste0(metal,"_unadj_perc_plot"),plot) 
+  
+}
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, unadjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_unadj_perc,
+                    Cadmium_unadj_perc, 
+                    Chromium_unadj_perc, 
+                    Copper_unadj_perc, 
+                    Lead_unadj_perc, 
+                    Manganese_unadj_perc, 
+                    Zinc_unadj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_unadjusted_models_50wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_unadj_perc_plot,
+                        Cadmium_unadj_perc_plot,
+                        Chromium_unadj_perc_plot,
+                        Copper_unadj_perc_plot,
+                        Lead_unadj_perc_plot,
+                        Manganese_unadj_perc_plot,
+                        Zinc_unadj_perc_plot)
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_unadjusted_models_percplots_50wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+```
+
+
+#Fit unadjusted models: for extremely preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_50$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(extremepreterm ~ eval(parse(text = paste0(metal,"_perc"))), family=binomial, data=cohort_50)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_unadj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_unadj_perc"),mod_tid) 
+  assign(paste0(metal,"_unadj_perc_plot"),plot) 
+  
+}
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, unadjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_unadj_perc,
+                    Cadmium_unadj_perc, 
+                    Chromium_unadj_perc, 
+                    Copper_unadj_perc, 
+                    Lead_unadj_perc, 
+                    Manganese_unadj_perc, 
+                    Zinc_unadj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_unadjusted_models_50wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_unadj_perc_plot,
+                        Cadmium_unadj_perc_plot,
+                        Chromium_unadj_perc_plot,
+                        Copper_unadj_perc_plot,
+                        Lead_unadj_perc_plot,
+                        Manganese_unadj_perc_plot,
+                        Zinc_unadj_perc_plot)
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_unadjusted_models_percplots_50wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+```
+
+
+#Fit adjusted models: for preterm birth  
+```{r}
+
+#create covariate variables that need to be derived 
+#mage square term 
+cohort <- cohort %>% 
+  mutate(mage_sq = mage*mage) 
+
+#ensure covariates are in correct variable type form 
+cohort <- cohort %>% 
+  mutate(racegp = as.factor(racegp)) %>% 
+  mutate(mage = as.numeric(mage)) %>% 
+  mutate(mage_sq = as.numeric(mage_sq)) %>% 
+  mutate(smoke = as.numeric(smoke)) %>% 
+  mutate(season_concep = as.factor(season_concep)) %>% 
+  mutate(mothed = as.numeric(mothed)) %>% 
+  mutate(Nitr_perc = as.numeric(Nitr_perc)) %>% 
+  mutate(sex = as.factor(sex))%>% 
+  mutate(pov_perc = as.factor(pov_perc))
+
+```
+
+##With percentile variables 
+```{r}
+
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_50$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(preterm ~ eval(parse(text = paste0(metal,"_perc"))) + mage + mage_sq+ racegp + smoke + season_concep + mothed + Nitr_perc + pov_perc, family=binomial, data=cohort_50)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_adj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(grepl('perc', term))%>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_adj_perc"),mod_tid) 
+  assign(paste0(metal,"_adj_perc_plot"),plot) 
+  
+}
+
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, adjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_adj_perc, 
+                    Cadmium_adj_perc, 
+                    Chromium_adj_perc, 
+                    Copper_adj_perc, 
+                    Lead_adj_perc, 
+                    Manganese_adj_perc, 
+                    Zinc_adj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_adjusted_models_50wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_adj_perc_plot,
+                        Cadmium_adj_perc_plot,
+                        Chromium_adj_perc_plot,
+                        Copper_adj_perc_plot,
+                        Lead_adj_perc_plot,
+                        Manganese_adj_perc_plot,
+                        Zinc_adj_perc_plot)
+
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_adjusted_models_percplots_50wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+
+```
+
+#Fit adjusted models: for very preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_50$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(verypreterm ~ eval(parse(text = paste0(metal,"_perc"))) + mage + mage_sq+ racegp + smoke + season_concep + mothed + Nitr_perc + pov_perc, family=binomial, data=cohort_50)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_adj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(grepl('perc', term))%>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_adj_perc"),mod_tid) 
+  assign(paste0(metal,"_adj_perc_plot"),plot) 
+  
+}
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, adjusted, very preterm birth models dataframes 
+results_df <- rbind(Arsenic_adj_perc, 
+                    Cadmium_adj_perc, 
+                    Chromium_adj_perc, 
+                    Copper_adj_perc, 
+                    Lead_adj_perc, 
+                    Manganese_adj_perc, 
+                    Zinc_adj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_adjusted_models_50wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_adj_perc_plot,
+                        Cadmium_adj_perc_plot,
+                        Chromium_adj_perc_plot,
+                        Copper_adj_perc_plot,
+                        Lead_adj_perc_plot,
+                        Manganese_adj_perc_plot,
+                        Zinc_adj_perc_plot)
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_adjusted_models_percplots_50wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+```
+
+
+#Fit adjusted models: for extremely preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_50$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(extremepreterm ~ eval(parse(text = paste0(metal,"_perc"))) + mage + mage_sq+ racegp + smoke + season_concep + mothed + Nitr_perc + pov_perc, family=binomial, data=cohort_50)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_adj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(grepl('perc', term))%>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_adj_perc"),mod_tid) 
+  assign(paste0(metal,"_adj_perc_plot"),plot) 
+  
+}
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, adjusted, very preterm birth models dataframes 
+results_df <- rbind(Arsenic_adj_perc, 
+                    Cadmium_adj_perc, 
+                    Chromium_adj_perc, 
+                    Copper_adj_perc, 
+                    Lead_adj_perc, 
+                    Manganese_adj_perc, 
+                    Zinc_adj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_adjusted_models_50wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_adj_perc_plot,
+                        Cadmium_adj_perc_plot,
+                        Chromium_adj_perc_plot,
+                        Copper_adj_perc_plot,
+                        Lead_adj_perc_plot,
+                        Manganese_adj_perc_plot,
+                        Zinc_adj_perc_plot)
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_adjusted_models_percplots_50wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+```
+
+
+
+#With dataset of tracts with >25% on well water 
+#Fit unadjusted models: for preterm birth 
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_25$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(preterm ~ eval(parse(text = paste0(metal,"_perc"))), family=binomial, data=cohort_25)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_unadj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_unadj_perc"),mod_tid) 
+  assign(paste0(metal,"_unadj_perc_plot"),plot) 
+  
+}
+
+```
+
+## Merge results 
+```{r}
+#merge all single metal, unadjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_unadj_perc, 
+                    Cadmium_unadj_perc, 
+                    Chromium_unadj_perc, 
+                    Copper_unadj_perc, 
+                    Lead_unadj_perc, 
+                    Manganese_unadj_perc, 
+                    Zinc_unadj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_unadjusted_models_25wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_unadj_perc_plot,
+                        Cadmium_unadj_perc_plot,
+                        Chromium_unadj_perc_plot,
+                        Copper_unadj_perc_plot,
+                        Lead_unadj_perc_plot,
+                        Manganese_unadj_perc_plot,
+                        Zinc_unadj_perc_plot)
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_unadjusted_models_percplots_25wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+```
+
+
+#Fit unadjusted models: for very preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_25$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(verypreterm ~ eval(parse(text = paste0(metal,"_perc"))), family=binomial, data=cohort_25)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_unadj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_unadj_perc"),mod_tid) 
+  assign(paste0(metal,"_unadj_perc_plot"),plot) 
+  
+}
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, unadjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_unadj_perc, 
+                    Cadmium_unadj_perc, 
+                    Chromium_unadj_perc, 
+                    Copper_unadj_perc, 
+                    Lead_unadj_perc, 
+                    Manganese_unadj_perc, 
+                    Zinc_unadj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_unadjusted_models_25wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_unadj_perc_plot,
+                        Cadmium_unadj_perc_plot,
+                        Chromium_unadj_perc_plot,
+                        Copper_unadj_perc_plot,
+                        Lead_unadj_perc_plot,
+                        Manganese_unadj_perc_plot,
+                        Zinc_unadj_perc_plot)
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_unadjusted_models_percplots_25wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+```
+
+
+#Fit unadjusted models: for extremely preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_25$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(extremepreterm ~ eval(parse(text = paste0(metal,"_perc"))), family=binomial, data=cohort_25)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_unadj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_unadj_perc"),mod_tid) 
+  assign(paste0(metal,"_unadj_perc_plot"),plot) 
+  
+}
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, unadjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_unadj_perc, 
+                    Cadmium_unadj_perc, 
+                    Chromium_unadj_perc, 
+                    Copper_unadj_perc, 
+                    Lead_unadj_perc, 
+                    Manganese_unadj_perc, 
+                    Zinc_unadj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_unadjusted_models_25wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_unadj_perc_plot,
+                        Cadmium_unadj_perc_plot,
+                        Chromium_unadj_perc_plot,
+                        Copper_unadj_perc_plot,
+                        Lead_unadj_perc_plot,
+                        Manganese_unadj_perc_plot,
+                        Zinc_unadj_perc_plot)
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_unadjusted_models_percplots_25wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+```
+
+
+#Fit adjusted models: for preterm birth  
+```{r}
+
+#create covariate variables that need to be derived 
+#mage square term 
+cohort <- cohort %>% 
+  mutate(mage_sq = mage*mage) 
+
+#ensure covariates are in correct variable type form 
+cohort <- cohort %>% 
+  mutate(racegp = as.factor(racegp)) %>% 
+  mutate(mage = as.numeric(mage)) %>% 
+  mutate(mage_sq = as.numeric(mage_sq)) %>% 
+  mutate(smoke = as.numeric(smoke)) %>% 
+  mutate(season_concep = as.factor(season_concep)) %>% 
+  mutate(mothed = as.numeric(mothed)) %>% 
+  mutate(Nitr_perc = as.numeric(Nitr_perc)) %>% 
+  mutate(sex = as.factor(sex))%>% 
+  mutate(pov_perc = as.factor(pov_perc))
+
+```
+
+##With percentile variables 
+```{r}
+
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_25$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(preterm ~ eval(parse(text = paste0(metal,"_perc"))) + mage + mage_sq+ racegp + smoke + season_concep + mothed + Nitr_perc + pov_perc, family=binomial, data=cohort_25)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_adj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(grepl('perc', term))%>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_adj_perc"),mod_tid) 
+  assign(paste0(metal,"_adj_perc_plot"),plot) 
+  
+}
+
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, adjusted, preterm birth models dataframes 
+results_df <- rbind(Arsenic_adj_perc, 
+                    Cadmium_adj_perc, 
+                    Chromium_adj_perc, 
+                    Copper_adj_perc, 
+                    Lead_adj_perc, 
+                    Manganese_adj_perc, 
+                    Zinc_adj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_adjusted_models_25wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_adj_perc_plot,
+                        Cadmium_adj_perc_plot,
+                        Chromium_adj_perc_plot,
+                        Copper_adj_perc_plot,
+                        Lead_adj_perc_plot,
+                        Manganese_adj_perc_plot,
+                        Zinc_adj_perc_plot)
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_pretermbirth_singlemetal_adjusted_models_percplots_25wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+
+```
+
+#Fit adjusted models: for very preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_25$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(verypreterm ~ eval(parse(text = paste0(metal,"_perc"))) + mage + mage_sq+ racegp + smoke + season_concep + mothed + Nitr_perc + pov_perc, family=binomial, data=cohort_25)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_adj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(grepl('perc', term))%>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_adj_perc"),mod_tid) 
+  assign(paste0(metal,"_adj_perc_plot"),plot) 
+  
+}
+```
+
+
+## Merge results 
+```{r}
+#merge all single metal, adjusted, very preterm birth models dataframes 
+results_df <- rbind(Arsenic_adj_perc, 
+                    Cadmium_adj_perc, 
+                    Chromium_adj_perc, 
+                    Copper_adj_perc, 
+                    Lead_adj_perc, 
+                    Manganese_adj_perc, 
+                    Zinc_adj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_adjusted_models_25wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_adj_perc_plot,
+                        Cadmium_adj_perc_plot,
+                        Chromium_adj_perc_plot,
+                        Copper_adj_perc_plot,
+                        Lead_adj_perc_plot,
+                        Manganese_adj_perc_plot,
+                        Zinc_adj_perc_plot)
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_verypretermbirth_singlemetal_adjusted_models_percplots_25wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+
+```
+
+
+#Fit adjusted models: for extremely preterm birth  
+
+##With percentile variables 
+```{r}
+
+for (i in 1:length(metals)) {
+  metal <- metals[[i]]
+  metal <- as.name(metal)
+  print(metal)
+  
+  print(is.factor(eval(parse(text = paste0("cohort_25$",metal,"_perc"))))) #check that metal var is a factor
+
+  mod <- glm(extremepreterm ~ eval(parse(text = paste0(metal,"_perc"))) + mage + mage_sq+ racegp + smoke + season_concep + mothed + Nitr_perc + pov_perc, family=binomial, data=cohort_25)
+  
+  mod_tid <- tidy(mod, conf.int=TRUE, conf.level=0.95) %>% 
+  mutate(model_name=paste0(metal,"_adj_perc")) %>% 
+  mutate(OR = exp(estimate)) %>% 
+  mutate(OR.conf.high = exp(conf.high)) %>% 
+  mutate(OR.conf.low = exp(conf.low)) 
+
+  mod_tid[2,1] <- paste0(metal,"_perc_50to90")
+  mod_tid[3,1] <- paste0(metal,"_perc_over90")
+  
+  plot <- mod_tid %>% 
+  filter(grepl('perc', term))%>% 
+  ggplot(aes(OR, term, xmin = OR.conf.low, xmax = OR.conf.high, height = 0)) +
+  geom_point() +
+  scale_x_continuous(trans="log10")+
+  geom_errorbarh()
+  
+  assign(paste0(metal,"_adj_perc"),mod_tid) 
+  assign(paste0(metal,"_adj_perc_plot"),plot) 
+  
+}
+```
+
+## Merge results 
+```{r}
+#merge all single metal, adjusted, very preterm birth models dataframes 
+results_df <- rbind(Arsenic_adj_perc, 
+                    Cadmium_adj_perc, 
+                    Chromium_adj_perc, 
+                    Copper_adj_perc, 
+                    Lead_adj_perc, 
+                    Manganese_adj_perc, 
+                    Zinc_adj_perc)
+write.csv(results_df, paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_adjusted_models_25wellwater.csv"), row.names= TRUE)
+
+#merge all the plots 
+perc_plots <- ggarrange(Arsenic_adj_perc_plot,
+                        Cadmium_adj_perc_plot,
+                        Chromium_adj_perc_plot,
+                        Copper_adj_perc_plot,
+                        Lead_adj_perc_plot,
+                        Manganese_adj_perc_plot,
+                        Zinc_adj_perc_plot)
+
+
+tiff(file = (paste0(Output_Folder,"/", cur_date, "_NCbirths_extremepretermbirth_singlemetal_adjusted_models_percplots_25wellwater.tiff")), width = 10, height = 8, units = "in", pointsize = 12, res = 300)
+plot(perc_plots)
+dev.off()
+
+
+```

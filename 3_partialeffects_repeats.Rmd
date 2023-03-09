@@ -1,0 +1,203 @@
+---
+title: "Toxic metal mixtures in wells and PTB: partial effects modeling, repeats"
+author: "Lauren Eaves"
+date: "4/13/2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+sessionInfo()
+rm(list=ls())
+
+#install.packages("yaml")
+#install.packages("rmarkdown")
+#install.packages("broom")
+
+#install.packages("devtools")
+#library(devtools)
+#devtools::install_github("alexpkeil1/qgcompint")
+
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(yaml)
+library(rmarkdown)
+library(broom)
+library(ggpubr)
+library(qgcomp)
+library(qgcompint)
+
+#Create a current date variable to name outputfiles
+cur_date <- str_replace_all(Sys.Date(),"-","")
+
+#Create an output folder 
+Output_Folder <- ("/Users/lauren_eaves/IEHS Dropbox/lauren Eaves/2_Dissertation/2_Analysis/Aim 2/1_analysis/output")
+
+#Load cohort data - generated in script: 1_20220131_cohortdataprep
+cohort <- read.csv(file="output/20220405_NCbirths_NAsingletons_GAexclusions_tractlevelmetals_data_withexposurevars.csv")
+colnames(cohort)
+
+```
+
+
+#Covariate variables generation
+```{r}
+
+#ensure covariates are in correct variable type form 
+cohort <- cohort %>% 
+  mutate(racegp = as.factor(racegp)) %>% 
+  mutate(mage = as.numeric(mage)) %>% 
+  mutate(mage_sq = as.numeric(mage_sq)) %>% 
+  mutate(smoke = as.numeric(smoke)) %>% 
+  mutate(season_concep = as.factor(season_concep)) %>% 
+  mutate(mothed = as.numeric(mothed)) %>% 
+  mutate(Nitr_perc = as.numeric(Nitr_perc)) %>% 
+  mutate(sex = as.factor(sex))%>% 
+  mutate(pov_perc = as.numeric(pov_perc))
+
+cohort <- cohort %>% 
+  mutate(preterm = as.factor(preterm)) %>% 
+  mutate(verypreterm = as.factor(verypreterm)) %>% 
+  mutate(extremepreterm = as.factor(extremepreterm))
+cohort$preterm <- relevel(cohort$preterm, ref = "0")
+cohort$verypreterm <- relevel(cohort$verypreterm, ref = "0")
+cohort$extremepreterm <- relevel(cohort$extremepreterm, ref = "0")
+
+```
+
+#PTB mixture models: partial effects, repeats 
+```{r}
+
+
+Xnm <- c('Arsenic.Mean_avg', 'Cadmium.Mean_avg', 'Lead.Mean_avg', 'Manganese.Mean_avg', 'Chromium.Mean_avg', 'Copper.Mean_avg', 'Zinc.Mean_avg')
+covars = c('mage','mage_sq','racegp','smoke','season_concep','mothed','Nitr_perc','pov_perc')
+
+
+for (i in 1:12) {
+  round <- i
+  round <- as.name(round)
+  print(round)
+  
+  n <- runif(1,1,3000000)
+  set.seed(n)
+  print(n)
+  
+  trainidx <- sample(1:nrow(cohort), round(nrow(cohort)*0.3))
+  valididx <- setdiff(1:nrow(cohort),trainidx)
+  traindata <- cohort[trainidx,]
+  validdata <- cohort[valididx,]
+  
+  PTB_splitres <- qgcomp.partials(fun="qgcomp.noboot", 
+                                f=preterm~., 
+                                q=4, 
+                                traindata=traindata[,c(Xnm,covars,'preterm')],
+                                validdata=validdata[,c(Xnm,covars,'preterm')], 
+                                expnms=Xnm,
+                                family=binomial())
+  PTB_splitres
+  plot(PTB_splitres$pos.fit)
+  plot(PTB_splitres$neg.fit)
+
+  PTB_splitres$posmix
+  posfit_posweight <- as.data.frame(PTB_splitres$pos.fit$pos.weights) %>% 
+    mutate("round"=paste0(round))
+  posfit_negweight <- as.data.frame(PTB_splitres$pos.fit$neg.weights)%>% 
+    mutate("round"=paste0(round))
+  PTB_splitres$negmix
+  negfit_posweight <- as.data.frame(PTB_splitres$neg.fit$pos.weights)%>% 
+    mutate("round"=paste0(round))
+  negfit_negweight <- as.data.frame(PTB_splitres$neg.fit$neg.weights)%>% 
+    mutate("round"=paste0(round))
+  
+  assign(paste0("round",round,"_PTB_splitres"),PTB_splitres) 
+  assign(paste0("round",round,"_posfit"),PTB_splitres$pos.fit)
+  assign(paste0("round",round,"_negfit"),PTB_splitres$neg.fit)
+  assign(paste0("round",round,"_posfit_posweight"),posfit_posweight) 
+  assign(paste0("round",round,"_posfit_negweight"),posfit_negweight) 
+  assign(paste0("round",round,"_negfit_posweight"),negfit_posweight) 
+  assign(paste0("round",round,"_negfit_negweight"),negfit_negweight) 
+}
+
+#export weights from each round 
+negfit_posweight<-grep("_negfit_posweight",names(.GlobalEnv),value=TRUE)
+negfit_posweight_list_results<-do.call("list",mget(negfit_posweight))
+print(names(negfit_posweight_list_results))
+
+negfit_negweight<-grep("_negfit_negweight",names(.GlobalEnv),value=TRUE)
+negfit_negweight_list_results<-do.call("list",mget(negfit_negweight))
+print(names(negfit_negweight_list_results))
+
+posfit_posweight<-grep("_posfit_posweight",names(.GlobalEnv),value=TRUE)
+posfit_posweight_list_results<-do.call("list",mget(posfit_posweight))
+print(names(posfit_posweight_list_results))
+
+posfit_negweight<-grep("_posfit_negweight",names(.GlobalEnv),value=TRUE)
+posfit_negweight_list_results<-do.call("list",mget(posfit_negweight))
+print(names(posfit_negweight_list_results))
+
+negfit<-grep("_negfit",names(.GlobalEnv),value=TRUE)
+negfit_list_results<-do.call("list",mget(negfit))
+print(names(negfit_list_results))
+
+posfit<-grep("_posfit",names(.GlobalEnv),value=TRUE)
+posfit_list_results<-do.call("list",mget(posfit))
+print(names(posfit_list_results))
+
+splitres<-grep("splitres",names(.GlobalEnv),value=TRUE)
+splitres_list_results<-do.call("list",mget(splitres))
+print(names(splitres_list_results))
+
+combined_negfit_posweight <- bind_rows(negfit_posweight_list_results, .id=NULL)
+combined_negfit_negweight <- bind_rows(negfit_negweight_list_results, .id=NULL)
+combined_posfit_posweight <- bind_rows(posfit_posweight_list_results, .id=NULL)
+combined_posfit_negweight <- bind_rows(posfit_negweight_list_results, .id=NULL)
+
+rm(list=c(names(splitres_list_results),names(negfit_list_results), names(posfit_list_results), names(negfit_posweight_list_results),names(negfit_negweight_list_results),names(posfit_posweight_list_results),names(posfit_negweight_list_results)))
+
+negfit_list_results$round1_negfit
+negfit_list_results$round2_negfit
+negfit_list_results$round3_negfit
+negfit_list_results$round4_negfit
+negfit_list_results$round5_negfit
+negfit_list_results$round6_negfit
+negfit_list_results$round7_negfit
+negfit_list_results$round8_negfit
+negfit_list_results$round9_negfit
+negfit_list_results$round10_negfit
+negfit_list_results$round11_negfit
+negfit_list_results$round12_negfit
+
+
+posfit_list_results$round1_posfit
+posfit_list_results$round2_posfit
+posfit_list_results$round3_posfit
+posfit_list_results$round4_posfit
+posfit_list_results$round5_posfit
+posfit_list_results$round6_posfit
+posfit_list_results$round7_posfit
+posfit_list_results$round8_posfit
+posfit_list_results$round9_posfit
+posfit_list_results$round10_posfit
+posfit_list_results$round11_posfit
+posfit_list_results$round12_posfit
+
+
+
+
+
+
+```
+
+
+#Export results 
+```{r}
+#bind all weights outputs from previous runs 
+
+write.csv(combined_negfit_posweight, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_weights_partialeffectsrepeats_negfitposweight.csv"), row.names=TRUE)
+write.csv(combined_negfit_negweight, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_weights_partialeffectsrepeats_negfitnegweight.csv"), row.names=TRUE)
+write.csv(combined_posfit_posweight, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_weights_partialeffectsrepeats_posfitposweight.csv"), row.names=TRUE)
+write.csv(combined_posfit_negweight, paste0(Output_Folder,"/", cur_date, "_qgcomp_Results_weights_partialeffectsrepeats_posfitnegweight.csv"), row.names=TRUE)
+
+```
